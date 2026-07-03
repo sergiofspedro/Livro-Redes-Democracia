@@ -1,0 +1,4 @@
+{
+  "plugin": ["oh-my-openagent@latest", "cc-safety-net"],
+  "$schema": "https://opencode.ai/config.json"
+}
