@@ -1,4 +1,5 @@
 ---
+name: openchamber-upgrade-safety
 description: "Protocolo unificado de upgrade do OpenChamber (LOCAL e VPS pipeline-vps): Fase 0 análise do estado atual, Fase 1 triage + análise da release (OC + opencode bundled + plugins, features/breaking/CVEs), Fase 2 plano de upgrade aprovado + execução + pós-upgrade + rollback com critérios objetivos, Fase 3 monitorização 24-48h + feedback loop. Aplica-se a ambas as instâncias; passos que diferem estão marcados [LOCAL]/[VPS]. Carregar ANTES de qualquer upgrade."
 ---
 
