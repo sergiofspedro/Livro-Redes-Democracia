@@ -23,6 +23,7 @@ Use this template for the **noites OpenChamber session** — the long, unsupervi
 - **Schedule**: <cron or one-shot date>
 - **Workspace**: <absolute path>
 - **Last noites report**: `notes/NIGHT-REPORT-<last>.md`
+- **Pendências doc**: <path or "none">
 
 ## 2. State snapshot
 
@@ -32,6 +33,7 @@ Use this template for the **noites OpenChamber session** — the long, unsupervi
 - Containers: `<container>` = `<status>`, `<port>` mapped
 - Cron: `<cron line>` last ran `<time>`
 - Open todos: `<count>` open issues, `<top 3 titles>`
+- Pendências (after reconciliation): `<closed by this run> closed, <open> open`
 
 ## 3. Mission
 
@@ -56,9 +58,10 @@ End of noites, **ALL** of the following are true:
 
 ## 5. Steps (M0→M3)
 
-### M0 — Orient (≤ 10 min)
+### M0 — Orient (≤ 15 min)
 
 - Read `notes/NIGHT-REPORT-<last>.md`.
+- **Reconcile the pendências doc** (if one was declared in §1). For each `❌ Falta executar` item: run `git log --all --oneline | grep -i "<kw>"`, `ls -la <expected file>`, and the relevant `docker ps` / `curl` / `grep` checks. Move done items to `✅ Já implementado e merged (NÃO repetir)` with one citation. Commit the doc as `chore(docs): reconcile pendências — close items N, M, ...`. Do NOT start the mission without doing this.
 - Run `git log --oneline -20` and `git status` in the workspace.
 - Check container health: `docker ps` on the VPS (if relevant).
 - Read the KEEP/DISCARD markers below; load the KEEP half first.
@@ -80,11 +83,13 @@ End of noites, **ALL** of the following are true:
 
 - Run ALL verify steps from M1 and M3.
 - Run `git status` — must be clean (or only the expected untracked).
+- **Re-reconcile the pendências doc**: any item you finished during M2 should be moved to the closed section with the commit hash. Commit as `chore(docs): close pendências X, Y from this cycle`.
 - Write `notes/NIGHT-REPORT-<YYYYMMDD>.md`:
   - State (what is true now)
   - What was done (one bullet per deliverable, with commit hash)
   - What is next (one bullet per unfinished item, with the noites prompt path for the next cycle)
   - Lessons (one bullet per non-obvious gotcha, with severity)
+  - **Pendências delta** (one line: `N closed this run, M remain open — see <doc path>`)
 - Commit + push the NIGHT-REPORT.
 - If the next noites cycle needs a prompt: produce it now using this same template.
 
