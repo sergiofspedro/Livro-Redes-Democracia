@@ -106,14 +106,15 @@ OpenChamber runs **inside a container**, but the user can also `docker exec` int
 
 **Skill `prompt-noite-builder` (M0 Pre-flight)** runs this exact check before step 1 — see that skill for the per-session protocol.
 
-### Gotcha: two `Dashboard project` dirs (one uppercase, one lowercase)
+### Gotcha: `dashboard project` (lowercase) was a legacy dir — now cleaned (2026-09-04)
 
-`workspaces/` contains BOTH `Dashboard project` (uppercase D, mtime Sep 4 04:53, **the live one**) and `dashboard project` (lowercase, mtime Aug 31, **legacy**, ~1.5 KB — empty project). `ls -la` sorts them adjacent and they're visually almost identical in monochrome logs.
+Before 2026-09-04, `workspaces/` contained two similarly-named dirs: `Dashboard project` (uppercase D, **live**, AGENTS.md mtime Sep 4 04:53) and `dashboard project` (lowercase, **legacy**, mtime Aug 31, empty `.open-mem/` only). `ls -la` sorts them adjacent and they're visually almost identical in monochrome logs.
+
+**On 2026-09-04**: the lowercase `dashboard project/` was moved to `backups/dashboard-project-legacy-20260904/`. After this cleanup, `workspaces/` has only one Dashboard project (uppercase). If a new lowercase `dashboard project` appears, treat it as a regression (likely a typo or accidental clone).
 
 - **Always use `Dashboard project`** (uppercase D) in briefs and scripts.
-- The lowercase `dashboard project` is an old artifact from before the rename. Do not write to it. Safe to archive to `backups/dashboard-legacy-<date>/` if you want, but **not required**.
-- Inside the container, the bind mount maps both correctly (`/home/openchamber/workspaces/Dashboard project` ↔ `/home/pipeline/pipeline/docker/openchamber/workspaces/Dashboard project`).
+- The cleanup was non-destructive: the legacy content (empty `.open-mem/`) is preserved at `workspaces/backups/dashboard-project-legacy-20260904/.open-mem/`. Safe to delete after 30 days if no further forensics are needed.
 
-**Verify with:** `ls -la /home/pipeline/pipeline/docker/openchamber/workspaces/ | grep -i dashboard` — expect 2 lines. The uppercase one should have the most recent mtime.
+**Verify with:** `ls /home/pipeline/pipeline/docker/openchamber/workspaces/ | grep -E '^dashboard '` — expect zero lines (cleaned).
 
 Última atualização: 2026-08-19 (criado do vps.md + runbook.md do Claude Code + verificação real)
