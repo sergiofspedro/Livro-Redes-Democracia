@@ -90,7 +90,18 @@ End of noites, **ALL** of the following are true:
   - What is next (one bullet per unfinished item, with the noites prompt path for the next cycle)
   - Lessons (one bullet per non-obvious gotcha, with severity)
   - **Pendências delta** (one line: `N closed this run, M remain open — see <doc path>`)
-- Commit + push the NIGHT-REPORT.
+
+### M3a — Auto-debrief (≤ 10 min, last step before push)
+
+- Spawn `task(agent="vps-operator", brief="Generate NIGHT-SESSION-DEBRIEF-<SID>.md (≤3 KB) per prompt-noite-builder schema. Use sqlite3.Connection.backup() for the opencode DB. <SID>=<current session id>")`.
+- The subagent extracts: runtime, tool error breakdown, subagent timing, parallelism gaps, auto-corrections, owner blockers, infra observations. Returns a 1-line summary.
+- Commit the debrief as `chore(docs): auto-debrief ses_<id>`.
+
+### M3b — Manual debrief review (next-day owner session, OUT OF SCOPE for noites)
+
+The next-day owner session reads `notes/NIGHT-SESSION-DEBRIEF-<SID>.md` and writes `notes/DEBRIEF-ACTIONS-<YYYYMMDD>.md` per the skill's M3b protocol. The noites session does NOT do M3b.
+
+- Commit + push the NIGHT-REPORT and the auto-debrief.
 - If the next noites cycle needs a prompt: produce it now using this same template.
 
 ## 6. KEEP / DISCARD markers

@@ -45,6 +45,100 @@ Skill that generates **noites prompts** for OpenChamber sessions. Inputs: a curr
 6. **Write** the prompt file. **Do not paste it into the chat** — the user will read it from disk.
 7. **Report** the path, a 1-line summary of what was generated, and a 1-line summary of which pendências items were closed during reconciliation.
 
+## M0 Pre-flight (path resolution) — added 2026-09-04
+
+Before step 2, validate every path cited in the brief against the actual filesystem. One wrong path in a noites brief sends the orchestrator on a multi-minute M0 recon detour (real example: `ses_f96b45f0cffedj1m4dihINdUlH`, 348s wasted).
+
+**Pre-flight checks (run BEFORE step 1, in this order):**
+
+1. `pwd` — confirm current working directory is a project root.
+2. `git rev-parse --show-toplevel` — confirm it points to a valid git root.
+3. For every absolute path in the brief: `ls -la <path>` and `cd <path> && pwd`. If any path doesn't exist, fix the brief (do not just log it).
+4. `docker ps --filter name=<project-keyword>` — confirm the project container is `Up`.
+5. Tool-permission reminder: the orchestrator's `bash` is denied by AGENTS.md rule. Every shell action goes through `task(agent=...)`. `fdx-git`/`fdx-ls`/`fdx-grep` MUST pass `directory=<repo-root>` because the session CWD is often the **parent dir** of the git root, not the git root itself (openchamber container default).
+
+**Path mapping (container ↔ host)** — document this in the brief so the orchestrator does not have to guess:
+
+| Container path (use this in brief) | Host path (use this in compose/scripts) |
+|---|---|
+| `/home/openchamber/workspaces/<project>/` | `/home/pipeline/pipeline/docker/openchamber/workspaces/<project>/` |
+| `/home/openchamber/workspaces/<project>/app/` | `/home/pipeline/pipeline/docker/openchamber/workspaces/<project>/app/` |
+| `/home/openchamber/.config/opencode/` | `/home/pipeline/pipeline/docker/openchamber/data/opencode/config/` |
+| `/home/openchamber/.local/share/opencode/opencode.db` | bind mount — never copy live, use `sqlite3.Connection.backup()` |
+
+Rule: **always cite container paths in briefs, host paths in scripts/composes**. Mixing them is the #1 source of the 348s M0 detour.
+
+## M3a — Auto-debrief (added 2026-09-04)
+
+The last 10–15 minutes of the noites session generate an **auto-debrief**. This is a separate file from the NIGHT-REPORT — the report describes what was done, the debrief describes how the session **ran** (efficiency, errors, infra).
+
+**Auto-debrief protocol:**
+
+1. At M3 (after `git status` is clean), spawn ONE subagent: `task(agent="vps-operator", brief="...")`. The brief must include: the session id (`ses_...`), the target path for the debrief (`notes/NIGHT-SESSION-DEBRIEF-<SID>.md`), the size cap (≤3 KB), and a pointer to the schema below.
+2. The subagent MUST:
+   - Use `sqlite3.Connection.backup()` to snapshot the opencode DB (per AGENTS.md rule, never copy a live DB).
+   - Extract from the snapshot: `messages` (filter by session id), `tool_calls`, `subagent_sessions`, `goal_mode` if present, and any `error` rows.
+   - Compute: actual runtime, tool error breakdown (top 5), subagent timing table (with parallel/serial flags), cache hit ratio, cost.
+   - Write the debrief using the schema below. **Do not include** PII, secrets, `av_agt_*` tokens, or the full message text — only counts, durations, and pattern summaries.
+3. The orchestrator commits the debrief as `chore(docs): auto-debrief ses_<id>` and pushes with the NIGHT-REPORT.
+
+**Auto-debrief schema (≤3 KB target, copy verbatim):**
+
+```markdown
+# NIGHT-SESSION-DEBRIEF: <SID>
+**Runtime**: <X>h <Y>m (target <Z>h) — delta: ±<W>h
+**Mode**: completed | early-exit | killed | crashed
+**Model**: <primary> | **Cost**: $<X.XX> | **Cache hit**: <ratio>
+
+## Tool health (top 5 errors)
+| Tool | Count | Pattern | First / last seen |
+|------|-------|---------|-------------------|
+| <tool> | <n> | <pattern> | <ts> / <ts> |
+
+## Subagent efficiency
+| Subagent | Time | Wasted? | Note |
+|----------|------|---------|------|
+| <agent> | <s>s | yes/no | <note> |
+
+## Parallelism
+- <X> subagents fired in <Y>s (cluster) — yes/no
+- <N>m serial where parallelism was possible — yes/no
+
+## Auto-corrections made by orchestrator
+- <correction 1>
+- <correction 2>
+
+## Owner blockers raised
+- <blocker 1> (e.g. OPENALEX_KEY missing — Inbox item, not committed)
+
+## Infra observations
+- RAM peak: <X> GiB / <Y> GiB
+- Peak gate hits: <N>
+- MCP -32001: <N>
+- Container restarts: <N>
+
+## Owner decisions recommended
+- [ ] <decision 1>
+- [ ] <decision 2>
+```
+
+## M3b — Manual debrief review (next-day owner session)
+
+The next-day session (typically 30–60 min, owned by the human) reviews the auto-debrief and decides which fixes to apply. This is the **manual half** of the debrief protocol.
+
+**Protocol for the next-day session:**
+
+1. Open the auto-debrief: `notes/NIGHT-SESSION-DEBRIEF-<SID>.md`. If the file is missing or <1 KB, the auto-debrief failed — re-run M3a manually.
+2. For each item in `## Owner decisions recommended`: classify as `apply now` / `plan first` / `reject`. The owner uses the `question` tool for binary decisions.
+3. For each item in `## Tool health` and `## Subagent efficiency` with `Wasted? yes`: classify as `fix in skill` / `fix in config` / `accept as-is`.
+4. For each item in `## Infra observations` with abnormal values: classify as `log it` / `fix now` / `regression watch`.
+5. Write `notes/DEBRIEF-ACTIONS-<YYYYMMDD>.md` (≤2 KB) with the decisions. Each action links to a follow-up commit or a `fix` task in the next noites prompt.
+6. Commit + push the actions file as `chore(docs): debrief actions from ses_<id>`.
+
+**Why the dual auto+manual split**: the auto-debrief is cheap (≤10 min) and always runs. The manual review is where context meets judgement — without it, even a perfect auto-debrief is just a log file nobody reads. The 4–10 session cohort is the sweet spot for this protocol: enough history to see patterns, still small enough that one review per noites session is sustainable.
+
+**Anti-pattern**: do not skip the manual review just because the auto-debrief looks clean. The most expensive lessons are the ones that look "fine" in the data but reveal a process problem in conversation.
+
 ## Pendências reconciliation protocol (step 1)
 
 The protocol is the same regardless of which file holds the list. For each `❌ Falta executar` item, verify in this order:
