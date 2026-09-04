@@ -27,6 +27,7 @@ Use this template for short daily OpenChamber sessions (≤ 60 min). The M0–M3
 ## M3 — Verify + Handoff (≤ 10 min)
 
 - Run the verify step from M1. If it fails: rollback.
+- **If the session closed a pendência item, update the doc first** (close + seed for next wave + header line). This is the same M3 hard rule as `noite.md` — see SKILL.md §"M3 hard rule". For ≤60 min daily sessions this usually means 1 close-commit, no seed.
 - Write 1 paragraph in `notes/HANDOFF-<date>.md` — what was done, what's next, blockers.
 - If a noites session is needed: produce a noites prompt using the `noite.md` template.
 

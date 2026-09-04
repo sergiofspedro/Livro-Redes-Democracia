@@ -180,3 +180,27 @@ The noites prompt is split using `<!-- KEEP: -->` and `<!-- DISCARD: -->` marker
 The noites session has limited time and a fixed token budget. Re-checking pendências before drafting the mission list eliminates the most expensive failure mode: **duplicated work**. A pendências doc that is not reconciled quickly becomes fiction: items stay listed as "Falta executar" long after they were merged, which leads the next noites session to spend an evening re-implementing what was already merged weeks ago. The reconciliation step is cheap (≤ 10 minutes of `git log` + a few `ls`/`grep`/`docker ps` calls) and prevents a multi-hour wrong-night.
 
 **Cost of skipping reconciliation**: typically 30–60% of the noites session is wasted on items already done. The 2026-09-03 dashboard Wave A debrief lists this as a top-3 lesson from the previous cycle.
+
+## M3 hard rule: pendências doc must end the cycle in a true state — added 2026-09-04
+
+**Rule.** Every noites session MUST end the cycle by updating the pendências doc — even if the session ran over budget, ended early, or closed zero new tasks. The doc is the most important artifact the noites session produces, more than any commit. A stale doc poisons the next cycle.
+
+**When.** This update is the FIRST step of M3, BEFORE writing the NIGHT-REPORT. (Closing the items in the report before the doc means the report cannot accurately cite the close-commit hash; the doc must come first.)
+
+**3 sub-steps, all mandatory:**
+
+1. **Close finished items** — any item finished during M2 moves from `❌ Falta executar` to `✅ Já implementado e merged (NÃO repetir)`, with a one-line citation of the closing commit hash. Commit as `chore(docs): close pendências X, Y from this cycle`.
+
+2. **Seed pendências for the next wave** — append a section to the doc titled `## Pendências para a próxima wave (<NEXT_WAVE_NAME>)`. Content:
+   - Items still open after this wave (cite why they didn't ship — BLOCKED, deferred, out of scope, owner-gated).
+   - Items surfaced DURING this wave that are now candidates (e.g. "better-sqlite3 ABI mismatch discovered during WebKit smoke — needs `npm rebuild` + verification").
+   - Each item: one-line "why this matters" + one-line "suggested next-step". This is what the next prompt-noite-builder call uses to seed the mission list.
+   - Commit as `chore(docs): seed pendências for <NEXT_WAVE_NAME>`. If no items, commit `chore(docs): no new pendências for <NEXT_WAVE_NAME>` (empty state is still a state — it tells the next session "nothing to seed").
+
+3. **Update the "Última reconciliação" line** in the doc header from `<previous date> (<previous wave>)` to `<today date> (<current wave>)`. Single line, no commit (rolled into the close commit).
+
+**Why this is hard, not soft.** A noites session that ends with a stale PENDENCIAS doc forces the next session to do a 30-minute "archaeology" pass to figure out what is still real and what is fiction. The 2026-09-04 dashboard Wave B post-mortem (§H lesson 1) explicitly flagged this: "Briefings can be stale" — and the cure is a strict end-of-cycle doc update.
+
+**Anti-pattern.** Writing the NIGHT-REPORT before the doc update. The report cites commits, but the doc's `✅ Já implementado` block is the place to bind commit hash → closed item. If the doc is updated after the report, the report can be wrong; if the doc is updated before, the report can cite the close-commit accurately. **Order: doc close → doc seed → doc header line → NIGHT-REPORT → push → auto-debrief.**
+
+**Verification step (M3 verify).** Before pushing, run: `git log --oneline -3 -- <PENDENCIAS-doc-path>`. The last 3 commits should include the close-commit AND the seed-commit. If only 1 or 0 is present, the M3 hard rule was skipped — fix before push.

@@ -81,16 +81,37 @@ End of noites, **ALL** of the following are true:
 
 ### M3 — Verify + Handoff (≤ 30 min before handoff time)
 
+**Hard rule (added 2026-09-04, ses_f96b45f0cffedj1m4dihINdUlH post-mortem):** the pendências doc update is **non-negotiable** — even if M2 ran over budget, even if the session ends early, even if no new tasks were closed. The doc must end the cycle in a state that accurately reflects reality. This is the most important artifact the noites session produces, more than any commit.
+
 - Run ALL verify steps from M1 and M3.
 - Run `git status` — must be clean (or only the expected untracked).
-- **Re-reconcile the pendências doc**: any item you finished during M2 should be moved to the closed section with the commit hash. Commit as `chore(docs): close pendências X, Y from this cycle`.
+- **Re-reconcile the pendências doc** (MANDATORY, 2 sub-steps):
+  1. **Close finished items**: any item you finished during M2 must be moved to `✅ Já implementado e merged (NÃO repetir)` with the commit hash. Commit as `chore(docs): close pendências X, Y from this cycle` BEFORE writing the NIGHT-REPORT.
+  2. **Refresh "O que sobra" / "O que vem a seguir"**: append a section at the end of the doc titled `## Pendências para a próxima wave (<NEXT_WAVE_NAME>)` with:
+     - Items still open after this wave (cite why they didn't ship — BLOCKED, deferred, out of scope).
+     - Items surfaced DURING this wave (e.g. "better-sqlite3 ABI mismatch discovered during WebKit smoke") that are now candidates for the next wave.
+     - Each item gets a one-line "why this matters" + "suggested next-step" — this is what the next prompt-noite-builder call uses to seed the mission list.
+     - Commit as `chore(docs): seed pendências for <NEXT_WAVE_NAME>`. If no items, commit `chore(docs): no new pendências for <NEXT_WAVE_NAME>` (still required — empty state is a state).
+  3. **Update the "Última reconciliação" line** in the doc header from `<previous date> (<previous wave>)` to `<today date> (<current wave>)`. This is a single line, no commit needed (rolled into the close commit).
 - Write `notes/NIGHT-REPORT-<YYYYMMDD>.md`:
   - State (what is true now)
   - What was done (one bullet per deliverable, with commit hash)
   - What is next (one bullet per unfinished item, with the noites prompt path for the next cycle)
   - Lessons (one bullet per non-obvious gotcha, with severity)
   - **Pendências delta** (one line: `N closed this run, M remain open — see <doc path>`)
-- Commit + push the NIGHT-REPORT.
+  - **Pendências doc updated** (yes/no, with commit hash — explicitly confirm the M3 step 1+2+3 above ran)
+
+### M3a — Auto-debrief (≤ 10 min, last step before push)
+
+- Spawn `task(agent="vps-operator", brief="Generate NIGHT-SESSION-DEBRIEF-<SID>.md (≤3 KB) per prompt-noite-builder schema. Use sqlite3.Connection.backup() for the opencode DB. <SID>=<current session id>")`.
+- The subagent extracts: runtime, tool error breakdown, subagent timing, parallelism gaps, auto-corrections, owner blockers, infra observations. Returns a 1-line summary.
+- Commit the debrief as `chore(docs): auto-debrief ses_<id>`.
+
+### M3b — Manual debrief review (next-day owner session, OUT OF SCOPE for noites)
+
+The next-day owner session reads `notes/NIGHT-SESSION-DEBRIEF-<SID>.md` and writes `notes/DEBRIEF-ACTIONS-<YYYYMMDD>.md` per the skill's M3b protocol. The noites session does NOT do M3b.
+
+- Commit + push the NIGHT-REPORT and the auto-debrief.
 - If the next noites cycle needs a prompt: produce it now using this same template.
 
 ## 6. KEEP / DISCARD markers
