@@ -1,0 +1,716 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // 2026-08-29: default_agent voltou a "orchestrator" (a pedido do utilizador).
+  // Backup: opencode.jsonc.bak-20260829-default-orchestrator. Aplica-se no próximo
+  // restart do OpenChamber.
+  "default_agent": "orchestrator",
+  // small_model (2026-08-31): sem esta chave o opencode usa o modelo do agente PRIMARIO
+  // para todas as chamadas small=true (titulos, resumos). O primario e o `orchestrator`,
+  // cuja cadeia comeca no OpenRouter -- que devolve HTTP 402 e so depois cai para o
+  // minimax. Resultado medido: ~17s so para gerar o titulo de cada sessao nova, que
+  // depois ficava presa no step=0 sem nunca produzir uma linha `process`. Espelha o VPS.
+  "small_model": "smart-router/smart-free",
+  "lsp": true,
+  "plugin": [
+    "./plugins/subagent-loop-guard.ts",
+    // chunkTimeoutMs raised from its 45s default 2026-08-15. This is the actual cause of
+    // the "vps-mcp_list_servers loop": a ~130k-token prompt on the free/slow tier takes
+    // longer than 45s to produce its first chunk, so auto-resume declared the turn stalled
+    // and re-issued the SAME request. Each retry re-ran the same tool calls, which is what
+    // looked like the model looping. Proof: input tokens were byte-identical across the
+    // repeated turns (163,683 then 130,933 -- a continuing conversation would grow), and
+    // magic-context logged only 2 transform decisions with dropped_tokens=0 for 35+ calls.
+    // It also explains why sessions "escaped" around turn 8: once the prompt cache warmed,
+    // responses returned under 45s and the retries stopped.
+    [
+      "opencode-auto-resume",
+      {
+        "chunkTimeoutMs": 300000,
+        "subagentWaitMs": 60000
+      }
+    ],
+    "cc-safety-net",
+    // "@cortexkit/opencode-magic-context@0.40.1",  // DISABLED 2026-08-28: replaced by open-mem trial. Backup: opencode.jsonc.bak-20260828-openmem
+    "@franlol/opencode-md-table-formatter@0.0.6",
+    // "opencode-snip@latest" -- disabled 2026-08-19. Its tool.execute.before hook
+    // prefix-prefixes every bash command with `snip`, and the snip CLI (v0.20.0,
+    // "CLI Token Killer") CORRUPTS compound PowerShell commands: it eats $vars,
+    // strips `=`, breaks regex like \d+, and breaks pipes -- forcing silent
+    // failures, retries and "walking in circles" (confirmed in 3 sessions
+    // analyzed 2026-08-19, including an 11.9M-token session). The binary stays in
+    // ~/.local/bin/snip.exe for manual use (`snip run -- <cmd>`). Re-enable only
+    // if upstream fixes command fidelity; see opencode-snip/src/index.ts.
+    // openslimedit added 2026-08-20 (token-saving analysis, proposal 1): compresses tool
+    // descriptions + compact read output + line-range edit support. 11-45% input token
+    // savings (benchmarks on GPT/Claude; our CC1/CC2 deepseek/mimo not covered -- tested
+    // 1 session before relying on it). Hooks-only, no custom tools, no system prompt
+    // injection, compatible with deny lists. Backup .bak-20260820-tokensaving.
+    "openslimedit@latest",
+    "opencode-log-sanitizer",
+    "@ramtinj95/opencode-tokenscope@latest",
+    "./plugins/open-controller-patched/dist/index.js", // 2026-09-01 shim: open-controller@2.0.2 ships v2-Effect default export {id, server} but opencode 1.18.25 expects v1 (plain fn). Patch on dist/index.js line 185: export default PcControllerPlugin. Re-apply if .bak-20260901-pc-exec-export file is restored or shim is regenerated.
+    "opencode-planner@latest",
+    [
+      "@plannotator/opencode@0.23.1",
+      {
+        "workflow": "plan-agent",
+        "planningAgents": [
+          "plan"
+        ]
+      }
+    ], // pinned 2026-08-09: current npm @latest (0.26.4) fails to load - "Could not find bundled HTML asset: review-editor.html". 0.23.1 is the version already cached here and known working.
+    "opencode-github-release",
+    "opencode-update-notifier@0.3.3",
+    "opencode-pty",
+    "@thecto/opencode-debug-plugin@latest",
+    "@rolled-potatoes/opencode-mermaid",
+    [
+      "opencode-translate",
+      {
+        "model": "smart-router/smart-flash",
+        "lang": "Portuguese"
+      }
+    ],
+    "opencode-timer-plugin",
+    "opencode-devjournal",
+    // Triage plugins added 2026-09-04: opencode-mcp-triage routes MCP work to scoped subagents (~80% token savings), opencode-triage routes skills via keyword matching (~90% token savings). Both add `triage()` tool, register /mcp-triage and /triage commands.
+    "opencode-mcp-triage",
+    "opencode-triage",
+    // "@devwellington/opencode-context-plugin" -- disabled 2026-08-09: same bug already confirmed and disabled on VPS 2026-07-27. experimental.chat.messages.transform throws "TypeError: undefined is not an object (evaluating this._isDestroyed)" on every message. Do not re-enable without checking upstream for a fix.
+    [
+      "@prevalentware/opencode-goal-plugin",
+      {
+        "auto_continue": false
+      }
+    ],
+    "@dv.nghiem/flowdeck@0.7.0-alpha.4",
+    "./plugins/opencode-context-cache.mjs",
+    "./plugins/envsitter-guard.ts",
+    // "./plugins/math-calc.ts" -- parked 2026-08-18. It was the only plugins/ file listed
+    // here; the other 19 in that directory are auto-loaded just by being there, which is
+    // why a config-only audit missed them. 18 of the 20 had never been called once in
+    // 12,895 tool calls, and cost 3,767 tokens of tool definitions on every request.
+    // Parked as plugins/<name>.ts.unused-20260818; restoring one is a rename.
+    "openrtk",
+    "./plugins/opencode-ops-patched/src/index.ts",
+    // open-mem REMOVIDO 2026-09-03 (Fase 1 do opencode-stack-migration-local-2026-09-02.md).
+    // Trial falhou: 3 sistemas de memória mortos (context.db 2026-08-28, codebase-memory-mcp 2026-08-31 17:47, .open-mem/ schema vazio). Backup: opencode.jsonc.bak-20260903-remove-openmem.
+    // Substituído por: Magic Context 0.40.1 (Fase 3) + AFT 0.55.0 (Fase 2) + Triage 0.9.0/1.3.4 (Fase 4). codebase-memory-mcp mantido (escritor real do context.db).
+    // "@tarquinen/opencode-dcp@3.1.14", "@atonev/opencode-short-term-memory@latest", "opencode-archive-before-compaction", "opencode-token-optimizer" -- all removed 2026-08-09: superseded by @cortexkit/opencode-magic-context (line 18). Running both stacks double-compresses and thrashes prompt cache per magic-context's own docs. UPDATE 2026-08-16: the VPS also now runs magic-context (0.37.0, same as here) -- the earlier "VPS keeps DCP, Node/Bun build lacks node:sqlite" note was wrong and has been superseded; DCP is removed there too. See mirror-openchamber.ps1's $NeverImportPlugins for why these four won't come back via the VPS mirror.
+    // "@cortexkit/opencode-magic-context@latest"  // FORÇADO 2026-09-04 11:14 pelo `mc doctor` SEM autorização. Removido. Reactivar na Fase 3 do plano de migração.
+  ],
+  "instructions": [
+    "./tools/philosophy.md",
+    "./tools/environment.md",
+    "./tools/rtk.md",
+    "./tools/style.md", // espelho 2026-08-21 da melhoria do VPS: regras de estilo concretas + tool calls sem justifications longas
+    "./tools/lessons.md" // licoes datadas das sessoes Claude Code que depuram este stack
+  ],
+  // 2026-08-29: compaction.auto true. A regra anterior ("false INTENCIONAL —
+  // magic-context compactava") ficou órfã: magic-context está desactivado (open-mem
+  // trial) e o open-mem NÃO dispara compactação — apenas participa no momento da
+  // compaction via hook experimental.session.compacting. Com auto:false, nada
+  // compactava (o /compact manual falhava com 500 por default_agent ser subagent,
+  // corrigido pela linha 6). Backup: opencode.jsonc.bak-20260829-compaction-auto.
+  // 2026-09-04: doctor do magic-context reverteu para false silenciosamente.
+  // Reposto. Backup: opencode.jsonc.bak-20260904-mc-doctor-revert.
+  "compaction": {
+    "auto": true,
+    "prune": false
+  },
+  "tool_output": {
+    "max_lines": 300,
+    "max_bytes": 16384
+  },
+  "provider": {
+    // "opencode" provider block removed 2026-08-15: it existed only to hand-declare
+    // deepseek-v4-flash-free as {context:128000, input:150000, output:8000}. The real
+    // registry says {context:200000, output:128000} -- the override both understated
+    // the model and, worse, invented an `input` cap. magic-context prefers limit.input
+    // over limit.context (models-dev-cache.ts), so that 150000 became the context limit
+    // it enforced: 163,186 tokens / 150,000 = 109%, which put every session into
+    // permanent compaction from turn 1. Let the registry value stand.
+    "smart-router": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://127.0.0.1:8765/v1"
+      },
+      "models": {
+        "smart-pro": {
+          "limit": {
+            "context": 1000000,
+            "output": 384000
+          }
+        },
+        "smart-flash": {
+          "limit": {
+            "context": 200000,
+            "output": 128000
+          }
+        },
+        // smart-orchestrator (2026-08-29, antes "smart-route" 2026-08-27): cadeia so para o
+        // ORQUESTRADOR. Cabeca z-ai/glm-5.3-flash via OpenRouter; fallbacks minimax free ->
+        // mimo-v2.5-free -> deepseek-v4-flash. Renomeado para o nome refletir o papel.
+        "smart-orchestrator": {
+          "limit": {
+            "context": 200000,
+            "output": 128000
+          }
+        },
+        "smart-vision": {
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          }
+        },
+        "smart-free": {
+          "limit": {
+            "context": 200000,
+            "output": 128000
+          }
+        },
+        "smart-dream": {
+          "limit": {
+            "context": 200000,
+            "output": 128000
+          }
+        },
+        "smart-history": {
+          "limit": {
+            "context": 200000,
+            "output": 128000
+          }
+        }
+      }
+    }
+  },
+  "permission": {
+    "doom_loop": "deny",
+    "todowrite": "ask",
+    // windows-mcp_* permissions removed 2026-08-19: the windows-mcp server was
+    // uninstalled (memory #15) and these 17 allow entries were dead — they only
+    // polluted the per-turn baseline and confused agents into trying a broken
+    // MCP. UI automation goes through pc-exec (PowerShell + UIAutomationClient).
+    "pc-exec": "allow",
+    "pc-screenshot": "allow",
+    "pc-mcp-status": "allow",
+    "pc-mcp-instructions": "allow"
+  },
+  "mcp": {
+    // 2026-08-15: this server had failed to start 40 times out of 40 since it was added
+    // on Aug 6 -- never once connected, while still costing 32,512 tokens because the
+    // tool schemas stay resident even with the server down. Cause: OpenCode's MCP
+    // `timeout` defaults to 5000ms and measures spawn -> tools/list. Measured here,
+    // idle machine: via npx 3.91s, and ~10 MCP servers race each other at launch, which
+    // pushes it past 5s every time. Two changes: call the globally installed binary so
+    // npx doesn't re-resolve the package on every spawn (2.39s, ~40% faster), and set an
+    // explicit timeout with real headroom for the native Rust engines and tray icon.
+    // Installed with: npm i -g @harusame64/desktop-touch-mcp@1.14.3
+    "desktop-touch": {
+      "type": "local",
+      "command": [
+        "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\desktop-touch-mcp.cmd"
+      ],
+      "enabled": true,
+      "timeout": 30000
+    },
+    // "awslabs.document-loader-mcp-server" -- removed 2026-08-15: uvx binary doesn't exist on this system (only uv.exe/uvw.exe present), causing immediate startup failure. "uv tool run" substitute fixes the missing-binary error but still takes ~35s warm (numpy/pypdfium2 imports) -- too slow for OpenChamber's connect timeout. Removed rather than fixed, confirmed with user.
+    "My remote--personal-context-vault": {
+      "type": "remote",
+      "url": "http://localhost:3001/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:OBSIDIAN_MCP_TOKEN}"
+      }
+    },
+    "vps-mcp": {
+      "type": "local",
+      "command": [
+        "node",
+        "C:\\Users\\Administrator\\vps-mcp\\dist\\index.js",
+        "--stdio"
+      ],
+      "enabled": true,
+      "environment": {
+        "VAULT_PASSWORD": "{env:VPS_MCP_VAULT_PASSWORD}"
+      }
+    },
+    "token-savior": {
+      "type": "local",
+      "command": [
+        "C:\\Users\\Administrator\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\uv.exe",
+        "tool",
+        "run",
+        "--from",
+        "token-savior-recall",
+        "token-savior"
+      ],
+      "enabled": true,
+      "environment": {
+        "WORKSPACE_ROOTS": "C:\\Users\\Administrator\\workspaces",
+        "TOKEN_SAVIOR_CLIENT": "opencode",
+        "TOKEN_SAVIOR_PROFILE": "compact-only"
+      }
+    },
+    "serena": {
+      "type": "local",
+      "command": [
+        "C:\\Users\\Administrator\\.local\\bin\\serena.exe",
+        "start-mcp-server",
+        "--context",
+        "claude-code",
+        "--project",
+        "C:\\Users\\Administrator\\Documents\\Opencode",
+        "--enable-web-dashboard",
+        "False",
+        "--open-web-dashboard",
+        "False"
+      ],
+      "enabled": true
+    },
+    "codebase-memory-mcp": {
+      "command": [
+        "C:/Users/Administrator/AppData/Local/Programs/codebase-memory-mcp/codebase-memory-mcp.exe"
+      ],
+      "type": "local"
+    }
+  },
+  "agent": {
+    "researcher": {
+      "mode": "subagent",
+      "permission": {
+        "context7_*": "allow",
+        "exa_*": "allow",
+        "gh_grep_*": "allow",
+        "kagi_*": "deny",
+        "webfetch": "allow",
+        "write": "deny",
+        "edit": "deny",
+        "plan_read": "deny",
+        "todoread": "deny",
+        "bash": {
+          "*": "deny",
+          "gh repo view*": "allow",
+          "gh pr view*": "allow",
+          "gh pr list*": "allow",
+          "gh issue view*": "allow",
+          "gh issue list*": "allow",
+          "gh release view*": "allow",
+          "gh release list*": "allow",
+          "gh run view*": "allow",
+          "gh run list*": "allow",
+          "gh workflow list*": "allow",
+          "gh search *": "allow",
+          "gh api *": "allow",
+          "npm view*": "allow",
+          "npm info*": "allow",
+          "npm show*": "allow",
+          "pip show*": "allow",
+          "pip index*": "allow",
+          "cargo search*": "allow",
+          "cargo info*": "allow",
+          "man *": "allow",
+          "tldr *": "allow",
+          "dig *": "allow",
+          "nslookup *": "allow",
+          "whois *": "allow",
+          "host *": "allow",
+          "jq *": "allow",
+          "head *": "allow",
+          "tail *": "allow",
+          "base64 *": "allow",
+          "grep *": "allow",
+          "rg *": "allow",
+          "wc *": "allow",
+          "sort *": "allow",
+          "uniq *": "allow",
+          "cut *": "allow",
+          "awk *": "allow",
+          "tr *": "allow"
+        }
+      }
+    },
+    "scribe": {
+      "mode": "subagent",
+      "prompt": "## Retry protocol\nIf a previous attempt failed:\n1. Read the error output CAREFULLY — do not guess\n2. Identify the ROOT CAUSE, not the symptom\n3. Try a DIFFERENT approach — never repeat the same failing method\n4. If stuck after 2 attempts, use base64 via bash as fallback\n5. After every edit/write, verify by reading back the result",
+      "permission": {
+        "bash": {
+          "*": "deny",
+          "python -c *": "allow"
+        },
+        "edit": "allow",
+        "glob": "allow",
+        "read": "allow",
+        "write": "deny",
+        "plan_read": "deny",
+        "todoread": "deny"
+      }
+    },
+    "coder": {
+      "mode": "subagent",
+      "prompt": "## Retry protocol\nIf a previous attempt failed:\n1. Read the error output CAREFULLY — do not guess\n2. Identify the ROOT CAUSE, not the symptom\n3. Try a DIFFERENT approach — never repeat the same failing method\n4. If stuck after 2 attempts, use base64 via bash as fallback\n5. After every edit/write, verify by reading back the result\n\n## Use specialized skills\nBefore coding, load relevant specialized skills via the `skill` tool when applicable (e.g. tdd, code-review-and-quality, python-patterns, backend-patterns, frontend-design for UI work, writing-plans/executing-plans for plan-based work).",
+      "permission": {
+        "context7_*": "deny",
+        "exa_*": "deny",
+        "gh_grep_*": "deny",
+        "read": "allow",
+        "write": "allow",
+        "edit": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "bash": "allow",
+        "plan_read": "deny",
+        "todoread": "deny",
+        "skill": "allow"
+      }
+    },
+    "reviewer": {
+      "mode": "subagent",
+      "model": "smart-router/smart-pro",
+      "temperature": 0.1,
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": {
+          "*": "deny",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "git show*": "allow",
+          "git blame*": "allow",
+          "rg *": "allow"
+        },
+        "plan_read": "allow",
+        "delegation_read": "allow",
+        "delegation_list": "allow"
+      }
+    },
+    "plan": {
+      "mode": "subagent",
+      "model": "smart-router/smart-free",
+      "permission": {
+        "bash": {
+          "*": "deny"
+        },
+        "worktree_*": "allow"
+      }
+    },
+    // "tools" here is load-bearing for context size, not just permissions: measured
+    // 2026-08-15, excluding desktop-touch_* drops this agent's baseline from 163,136
+    // to 130,933 tokens (-32,203, i.e. 20% of the whole context). The tool schemas are
+    // genuinely removed from the prompt, not merely blocked at call time. desktop-touch
+    // is a second GUI-automation stack that no agent actually references -- pc-operator,
+    // the desktop agent, drives open-controller/windows-mcp instead -- so nothing loses
+    // a capability here. Re-enable by deleting the "tools" key, or move it to a subagent
+    // that needs it: subagents pay for their own tools only while they run.
+    // github_* moved off the orchestrator 2026-08-15 (23 tools, 2,967 tokens by the real
+    // tokenizer). The capability is unchanged -- git-agent still resolves all 23 as true,
+    // verified with `opencode debug agent git-agent`: a deny here does NOT cascade to
+    // subagents. Reach them by delegating to git-agent.
+    //
+    // Written as `permission` and not `tools` on purpose. Both were tested and both flip
+    // the resolved tool map identically (23/23 false), but `tools` is deprecated in the
+    // docs in favour of `permission`, and issue anomalyco/opencode#37675 reports the
+    // GLOBAL `tools` key failing to exclude MCP tools from provider requests. Per-agent
+    // is a different code path and works, but there is no reason to build on the
+    // deprecated field when the supported one produces the same state.
+    // assistant (2026-08-27): foi DEFAULT durante 2 dias para poupar o GLM 5.3 do
+    // `orchestrator` em conversa avulsa. REVERTIDO 2026-08-29: default_agent voltou a
+    // `orchestrator` (ver topo do ficheiro). O `assistant` mantem-se como fallback
+    // rapido read-only (smart-free), acessivel por troca manual de agente.
+    "assistant": {
+      "model": "smart-router/smart-free",
+      "mode": "subagent",
+      "prompt": "Fast fallback for trivial read-only lookups. The primary session runs on the `orchestrator`; delegate any mutation to `coder`."
+    },
+    "orchestrator": {
+      "mode": "primary",
+      // 2026-09-04: steps cap added after ses_f96b45f0cffedj1m4dihINdUlH
+      // post-mortem. Noites sessions can run unbounded iterations otherwise.
+      // 200 covers ~20h budget at 1 iter/6min average; subagent delegation
+      // makes this a soft ceiling not a hard limit (subagents count their own
+      // steps). Set lower (50) for daily sessions if context gets tight.
+      "steps": 200,
+      "tools": {
+        "desktop-touch_*": false
+      },
+      "model": "smart-router/smart-orchestrator",
+      "permission": {
+        // Denied 2026-08-15 from measured evidence, not guesswork. Each of these
+        // tools has ZERO invocations across all 404 sessions in opencode.db, while
+        // costing schema tokens in every single request. Costs come from magic
+        // context's tool_definition_measurements (real tokenizer at the provider
+        // boundary) -- a chars/4 estimate was wrong by up to 7.8x per tool.
+        //
+        // Total: 178 dead tools, 14,628 tokens off a 34,166-token orchestrator.
+        //
+        // This does NOT cascade to subagents -- verified with `opencode debug agent
+        // git-agent`, which still resolves all 23 github_* as true. Everything here
+        // stays reachable by delegating to the agent that owns it.
+        //
+        // Namespaces with live tools are listed per-tool instead of globbed, so
+        // these keep working: ssh_hosts(400 calls), ssh_connect(56), ssh_exec(12),
+        // pc-exec(693), pc-screenshot(12), fdx-read(11), fdx-ls(6), git_context(7),
+        // git_dirty(7), create_release(13).
+        //
+        // ctx_* is deliberately absent: Magic Context is the context engine, and
+        // ctx_expand/ctx_note read as unused only because it was installed Aug 9.
+        //
+        // Written as `permission`, not the deprecated `tools` key. Both were tested
+        // and produce an identical resolved tool map; see anomalyco/opencode#37675
+        // for the global `tools` key failing to exclude tools from provider requests.
+        "clear_*": "deny",
+        "codebase-*": "deny",
+        "codebase_*": "deny",
+        "command_*": "deny",
+        "create_goal": "deny",
+        "debug_*": "deny",
+        "decision_*": "deny",
+        "delegate": "deny",
+        "delegation_*": "deny",
+        "devjournal*": "deny",
+        "diff_*": "deny",
+        "edit_*": "deny",
+        "encode*": "deny",
+        "envsitter_*": "deny",
+        "error_*": "deny",
+        "fdx-context": "deny",
+        "fdx-decisions": "deny",
+        "fdx-validate": "deny",
+        "fdx-worktree": "deny",
+        "fdx-search": "deny",
+        "fdx-batch": "deny",
+        "fdx-graph": "deny",
+        "fdx-impact": "deny",
+        "fdx-outline": "deny",
+        "fdx-test": "deny",
+        "fdx-lint": "deny",
+        "get_*": "deny",
+        "git_recent": "deny",
+        "git_branches": "deny",
+        "github_*": "deny",
+        "hash*": "deny",
+        "hash-*": "deny",
+        "hmac*": "deny",
+        "json_*": "deny",
+        "list-*": "deny",
+        "load-*": "deny",
+        "math_*": "deny",
+        "memory_*": "deny",
+        "note_*": "deny",
+        "obsidian_*": "deny",
+        "openchamber*": "deny",
+        "openchamber_*": "deny",
+        "pc-mcp-instructions": "deny",
+        "plan_*": "deny",
+        "planner_*": "deny",
+        "project_*": "deny",
+        "pty_*": "deny",
+        "regex_*": "deny",
+        "render_*": "deny",
+        "repo-*": "deny",
+        "review-*": "deny",
+        "session_*": "deny",
+        "set_*": "deny",
+        "snippet_*": "deny",
+        "ssh_disconnect": "deny",
+        "ssh_flush": "deny",
+        "ssh_reconnect": "deny",
+        "ssh_info": "deny",
+        "ssh_upload": "deny",
+        "ssh_download": "deny",
+        "ssh_input": "deny",
+        // ssh_read / ssh_edit / ssh_append were denied here on 2026-08-16 and RESTORED
+        // on 2026-08-17 (515 tokens). They had zero historical invocations, but that
+        // history described a machine that did not yet manage the VPS from OpenChamber.
+        // Pruning on past usage cut a capability the new workflow needs: on 2026-08-17
+        // a live session tried ssh_read twice and both calls came back as `invalid`.
+        // These three are how a remote doc gets read and edited in place, which the
+        // doc-maintenance loop depends on. Re-measure the deny list after any workflow
+        // change rather than assuming yesterday's usage still describes today's work.
+        "ssh_dashboard": "deny",
+        "submit_*": "deny",
+        "suggest_*": "deny",
+        "terminal_*": "deny",
+        "time_*": "deny",
+        "todo_*": "deny",
+        "unit_*": "deny",
+        "update_*": "deny",
+        "worktree_*": "deny",
+        "question": "allow",
+        "external_directory": "ask",
+        "read": {
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "**/.local/share/opencode/opencode.db*": "allow",
+          "**/AppData/Roaming/OpenChamber/**": "ask"
+        },
+        "envsitter-guard": "deny",
+        // 2026-08-28: deny-all bash on the orchestrator forces it to delegate shell
+        // access to the vps-operator subagent (which has its own filter list, see below)
+        // instead of running ssh pipeline-vps ... directly. Read-only ssh queries are
+        // still routed through the filter, so even `ssh pipeline-vps uptime` now asks
+        // first -- the rule is "ask by default" for any ssh to the VPS, "ask" is
+        // intentional on a machine that runs unattended (skill: openchamber-config-surgery).
+        // Backed up as opencode.jsonc.bak-20260828-orch-bash-deny.
+        // 2026-09-04: when bash is denied, the tool's stderr is the only signal the
+        // user sees. Pre-stage the canonical error message below in the prompt so the
+        // next tool call knows what to do instead of guessing.
+        "bash": {
+          "*": "deny",
+          "ssh pipeline-vps *": "ask",
+          "ssh pipeline-vps *rm -rf*": "ask",
+          "ssh pipeline-vps *sudo*": "ask",
+          "ssh pipeline-vps *kill -9*": "ask",
+          "ssh pipeline-vps *git push*--force*": "ask",
+          "ssh pipeline-vps *git reset --hard*": "ask"
+        }
+      },
+      "prompt": "Output style: CONCISE. Bullet points, no paragraphs longer than 2-3 lines, no pleasantries, no restating what the user already knows. Use compact tables for comparative data (not long lists). For code, show only the diff/changes. Never caveman style (no fragments without grammar) - keep correct grammar and technical clarity. Anti-narration (2026-08-20): tool calls and outputs are self-evident. Do not narrate upcoming or completed actions between calls - only write text between tool calls when (a) there is a decision to communicate, (b) an error/risk, or (c) a result needs interpretation. Transitions: max 1 line. Backup .bak-20260820-anti-narration.\n\nYou are an orchestrator: route work to specialist subagents via the `task` tool rather than doing all of it yourself. This machine exists to maintain and debug the pipeline-vps Hetzner VPS, so weight your routing accordingly.\n\n- Remote VPS operations over SSH: `vps-operator`. This is the workhorse here.\n- Something is broken: `debug-specialist` for systematic root-cause analysis.\n- Finding your way around code: `explore` to locate files fast, `mapper` to map an unfamiliar area read-only.\n- External documentation or research: `researcher`.\n- Git operations: `git-agent`. Shell sessions: `terminal`.\n- When you do touch code: `coder` to implement, then `reviewer`, plus `security-auditor` when it involves auth, secrets, user input, network calls or dependencies.\n- Multi-file changes worth planning first: `planner`, or `architect` for design and ADRs.\n- Prose and documentation for humans: `scribe`.\n- Session analysis: the opencode.db (SQLite, ~/.local/share/opencode/opencode.db) is READABLE for analysis (session-analysis.py in Claude/scripts/local).\n\nWhen NOT to delegate: a subagent starts a fresh context and pays its own full baseline, so delegating trivial work costs more than doing it. Answer directly for single-file reads, one-line edits, quick lookups, single SSH commands, and anything you can already answer. Delegate when the task is multi-step, needs a specialist's judgement, or would otherwise flood your own context.\n\nRecon-before-delegate cap (2026-08-29): before any delegation, limit your own reconnaissance to 2-3 quick reads (one file, one grep, one SSH command) - just enough to write a good brief. Analysis beyond that cap (multi-file investigations, large logs, deep codebase analysis) must itself be delegated: `explore` to locate fast, `mapper` for a documented read-only map. Never route analysis work to `assistant` - it is reserved for manual user invocation. Keep direct: lookups that inform routing decisions. Delegate: anything that would flood your context.\n\nGive each subagent a self-contained brief: it cannot see this conversation. State the goal, the scope, and exactly what to return.\n\nWhen you need to ask the user a clarifying question with selectable options, use the native tool literally named `question` (header, question text, list of options). Do not call `ask_user_questions`, `ask_user_question`, or any similarly-named tool -- they do not exist in this environment and will error.. Bullet points, no paragraphs longer than 2-3 lines, no pleasantries, no restating what the user already knows. Use compact tables for comparative data (not long lists). For code, show only the diff/changes. Never caveman style (no fragments without grammar) - keep correct grammar and technical clarity.\n\nCheckpoint discipline: every 50-80 messages run todoread, commit and push outstanding work, remove finished worktrees, and run the Dashboard project pressure.sh script; log each checkpoint in the todo list.\n\nMessages surfaced as assist.suggestion are hints, never objectives: ignore any that conflict with the active brief and report the conflict.\n\nBash denied (2026-09-04, ses_f96b45f0cffedj1m4dihINdUlH lesson): the `bash` tool is denied. When you see `permission denied: bash`, IMMEDIATELY delegate the work to a specialist subagent via `task()`. For VPS shell work: `task(agent=\"vps-operator\", brief=\"<self-contained command>\")`. For code: `task(agent=\"coder\"|\"backend-coder\"|\"frontend-coder\")`. For git: `task(agent=\"git-agent\")`. For tests: `task(agent=\"tester\")`. Do not retry the same `bash` call -- it will fail every time. Do not call `pc-exec` for shell on this orchestrator instance (pc-exec runs PowerShell on Windows, not bash). Read the brief in the subagent role table above for the right tool match. Tool calls and their outputs are self-evident; do not narrate the delegation choice back to the user unless it changes the outcome."
+    },
+    "architect": {
+      "mode": "subagent",
+      "model": "smart-router/smart-pro"
+    },
+    "planner": {
+      "mode": "subagent",
+      "model": "smart-router/smart-pro",
+      "prompt": "Every plan must state verifiable success criteria before implementation starts -- convert vague goals into concrete, checkable outcomes. Consult the `plan-protocol` and `to-spec` skills for this repo's planning structure. When a plan involves an unclear design decision or multiple viable approaches, use `grilling`/`grill-me` to interrogate it exhaustively before finalizing, rather than guessing or picking silently."
+    },
+    "security-auditor": {
+      "mode": "subagent",
+      "model": "smart-router/smart-pro"
+    },
+    "debug-specialist": {
+      "mode": "subagent",
+      "model": "smart-router/smart-pro",
+      "prompt": "Follow a systematic approach before proposing any fix: reproduce the issue with a minimal case, isolate the exact failing component via direct evidence (logs, stack traces, targeted tests) -- not speculation -- form a specific hypothesis about root cause, then verify that hypothesis before fixing. Consult the `debugging` and `diagnosing-bugs` skills for this repo's established methodology. Never propose a fix you haven't traced to a confirmed root cause."
+    },
+    "mapper": {
+      "mode": "subagent",
+      "model": "smart-router/smart-flash"
+    },
+    "backend-coder": {
+      "mode": "subagent",
+      "model": "smart-router/smart-free"
+    },
+    "frontend-coder": {
+      "mode": "subagent",
+      "model": "smart-router/smart-free"
+    },
+    "tester": {
+      "mode": "subagent",
+      "model": "smart-router/smart-free"
+    },
+    "devops": {
+      "mode": "subagent",
+      "model": "smart-router/smart-free"
+    },
+    "build": {
+      "mode": "subagent",
+      "prompt": "Output style: CONCISE. Bullet points, no paragraphs longer than 2-3 lines, no pleasantries, no restating what the user already knows. Use compact tables for comparative data (not long lists). For code, show only the diff/changes. Never caveman style (no fragments without grammar) - keep correct grammar and technical clarity.\n\nYou are a **build orchestrator**. You coordinate implementation through delegation - you do NOT implement directly.\n\n## Your Role\n- Delegate implementation to `coder`\n- Delegate documentation to `scribe`\n- Delegate codebase analysis to `explore`\n- Delegate external research to `researcher`\n- Interpret results and decide next steps\n\n## Critical Constraint\nYou CANNOT edit files or run commands directly. For ALL implementation and verification, delegate to `coder`.",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": {
+          "*": "deny"
+        },
+        "task": "allow",
+        "worktree_*": "allow"
+      }
+    },
+    "pc-operator": {
+      "mode": "subagent",
+      "model": "smart-router/smart-vision",
+      "prompt": "You control the local Windows desktop directly (UI automation, PowerShell, registry, files, screenshots) via the pc-exec/pc-screenshot/pc-mcp-status native tools (PowerShell + UIAutomationClient .NET). Only invoke this capability when explicitly asked to interact with the desktop. Confirm before any destructive or irreversible action (deleting files, killing processes, registry writes).",
+      "permission": {
+        "pc-exec": "allow", // PATCH 2026-09-01: open-controller@2.0.2 shipped a v2-Effect default export ({ id, server }); opencode 1.18.25 expects v1 (plain function). Re-export fixed in dist/index.js; backup .bak-20260901-pc-exec-export. Re-apply after `npm i` -- the package's dist/ is wiped on reinstall.
+        "pc-screenshot": "allow",
+        "pc-mcp-status": "allow",
+        "pc-mcp-instructions": "allow"
+      }
+    },
+    "explore": {
+      "mode": "subagent",
+      "permission": {
+        // Restored 2026-08-19: explore was the only agent with live windows-mcp
+        // usage (26 real calls since 08-15) before global perms were removed.
+        // The MCP itself stays enabled via the open-controller plugin (no toggle);
+        // granting here keeps the screen-reading capability without re-opening
+        // windows-mcp_* to every agent. Remove if upstream fixes the MCP.
+        "windows-mcp_PowerShell": "allow",
+        "windows-mcp_Snapshot": "allow",
+        "windows-mcp_Screenshot": "allow"
+      }
+    },
+    "vps-operator": {
+      "mode": "subagent",
+      "prompt": "Output style: CONCISE. Bullet points, no paragraphs longer than 2-3 lines, no pleasantries, no restating what the user already knows. Use compact tables for comparative data (not long lists). For code, show only the diff/changes. Never caveman style (no fragments without grammar) - keep correct grammar and technical clarity.\n\nYou manage the pipeline-vps Hetzner VPS (Tailscale alias) over SSH: deploying changes, reading/searching files, pushing and pulling config, updating installed tools, managing Docker/OpenClaw containers, and cron jobs. Hard rules, no exceptions:\n- Never heredoc through SSH from PowerShell (it mangles ${VAR} and quotes). Write the script locally, `scp` it to the VPS, then run it there.\n- Never `UPDATE cron_jobs WHERE store_key = ?` — store_key is not unique, it corrupts every job. Use `openclaw cron edit <job_id>` (CLI) for cron changes, not direct SQLite writes — direct writes get silently overwritten by the next cron run anyway.\n- Never run an agent/CLI call on a workspace file (SOUL.md etc.) between editing it and restarting the container — the edit gets reverted from in-memory state.\n- Secrets live in Infisical; never hardcode a key or paste a real secret value into a command you're about to run — reference the file-based SecretRef path instead.\n- Some actions below prompt for confirmation even though this agent has broad SSH access — that's intentional, don't try to route around it by rephrasing the command.\n",
+      "permission": {
+        "bash": {
+          "*": "allow",
+          "ssh pipeline-vps *rm -rf*": "ask",
+          "ssh pipeline-vps *sudo*": "ask",
+          "ssh pipeline-vps *DROP *": "ask",
+          "ssh pipeline-vps *TRUNCATE *": "ask",
+          "ssh pipeline-vps *docker rm*": "ask",
+          "ssh pipeline-vps *docker compose down*": "ask",
+          "ssh pipeline-vps *docker-compose down*": "ask",
+          "ssh pipeline-vps *systemctl stop*": "ask",
+          "ssh pipeline-vps *systemctl restart*": "ask",
+          "ssh pipeline-vps *reboot*": "ask",
+          "ssh pipeline-vps *shutdown*": "ask",
+          "ssh pipeline-vps *kill -9*": "ask",
+          "ssh pipeline-vps *git push*--force*": "ask",
+          "ssh pipeline-vps *git reset --hard*": "ask",
+          "ssh pipeline-vps *curl*|*sh*": "ask",
+          "ssh pipeline-vps *wget*|*sh*": "ask",
+          "ssh pipeline-vps *UPDATE cron_jobs*": "ask",
+          "ssh pipeline-vps *userdel*": "ask",
+          "ssh pipeline-vps *passwd*": "ask",
+          "ssh pipeline-vps *rm*secret*": "ask",
+          "ssh pipeline-vps *chmod 777*": "ask",
+          "ssh pipeline-vps *iptables*": "ask",
+          "ssh pipeline-vps *ufw*": "ask"
+        },
+        "edit": "allow",
+        "write": "allow",
+        "read": "allow"
+      }
+    },
+    "terminal": {
+      "mode": "subagent",
+      "prompt": "You execute terminal commands for development tasks. You have bash shell access. Run commands, check outputs, and report results.",
+      "permission": {
+        "bash": {
+          "*": "allow"
+        }
+      }
+    },
+    "git-agent": {
+      "mode": "subagent",
+      "prompt": "You are a git specialist. Handle all git operations: commits, branches, rebase, squash, history search (blame, log, diff). You can read files and edit them.",
+      "permission": {
+        "bash": {
+          "*": "allow"
+        },
+        "edit": "allow",
+        "read": "allow"
+      }
+    },
+    "sisyphus-junior": {
+      "mode": "subagent",
+      "timeout": 600000,
+      "prompt": "CRITICAL: The `write` tool truncates files >2000 chars in this environment. NEVER use `write` for Python scripts or large files. Instead, use `bash` with base64-encoded Python:\n\n```powershell\n$script = @\"\n...Python code here...\n\"@\n$b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))\npython -c \"import base64,sys; exec(base64.b64decode(sys.argv[1]).decode())\" $b64\n```\n\nThis avoids truncation and works reliably. Use `edit` for small targeted changes to existing files.\n\n## Retry protocol\nIf a previous attempt failed:\n1. Read the error output CAREFULLY — do not guess\n2. Identify the ROOT CAUSE, not the symptom\n3. Try a DIFFERENT approach — never repeat the same failing method\n4. If stuck after 2 attempts, use base64 via bash as fallback\n5. After every edit/DB write, verify by reading back the result",
+      "permission": {
+        "write": "deny",
+        "edit": "allow",
+        "bash": {
+          "*": "allow"
+        },
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    }
+  }
+}
